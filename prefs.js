@@ -17,8 +17,8 @@ import {
 // the one the Shell actually reads.
 import {
     flatpakDataDir,
-    parseDatadirPath,
     prefFileCandidates,
+    readDatadirPath,
     resolveProfileDir,
 } from './modules/paths.js';
 
@@ -51,42 +51,35 @@ function sourceLabel(source) {
 /**
  * Work out which directory the Shell would read, right now.
  *
- * This duplicates no logic: the decision is resolveProfileDir's, and only the
- * probing differs. Synchronous I/O is fine here — this is an ordinary
- * application process, not the compositor thread.
+ * The decision is resolveProfileDir's and the rule for which remmina.pref wins
+ * is readDatadirPath's; only the reading differs. Synchronous I/O is fine here
+ * — this is an ordinary application process, not the compositor thread — and
+ * routing it through the same shared rule is what stops this window reporting a
+ * different directory than the panel actually reads.
  *
  * @param {Gio.Settings} settings Extension settings.
- * @returns {{dir: string|null, source: string}} The directory and why.
+ * @returns {Promise<{dir: string|null, source: string}>} The directory and why.
  */
-function detectProfileDir(settings) {
+async function detectProfileDir(settings) {
     const home = GLib.get_home_dir();
     const hasNativeRemmina = GLib.find_program_in_path('remmina') !== null;
     const hasFlatpakData = Gio.File.new_for_path(flatpakDataDir(home)).query_exists(
         null,
     );
 
-    let datadirPath = null;
     const candidates = prefFileCandidates({
         home,
         xdgConfigHome: GLib.getenv('XDG_CONFIG_HOME'),
         hasNativeRemmina,
     });
 
-    for (const path of candidates) {
-        const file = Gio.File.new_for_path(path);
-        if (!file.query_exists(null)) continue;
+    const datadirPath = await readDatadirPath(candidates, async path => {
+        // Synchronous load_contents returns (ok, contents, etag); the
+        // promisified async one drops the boolean. They genuinely differ.
+        const [, contents] = Gio.File.new_for_path(path).load_contents(null);
 
-        try {
-            // Synchronous load_contents returns (ok, contents, etag); the
-            // promisified async one drops the boolean. They genuinely differ.
-            const [, contents] = file.load_contents(null);
-            datadirPath = parseDatadirPath(new TextDecoder().decode(contents));
-        } catch (error) {
-            console.warn(`[quickrem] could not read ${path}: ${error}`);
-        }
-
-        break;
-    }
+        return new TextDecoder().decode(contents);
+    });
 
     return resolveProfileDir({
         override: settings.get_string('profile-dir'),
@@ -126,23 +119,32 @@ const StatusRow = GObject.registerClass(
             this._sync();
         }
 
-        /** Recompute the subtitle from the current settings. */
-        _sync() {
-            const { dir, source } = detectProfileDir(this._settings);
+        /**
+         * Recompute the subtitle from the current settings.
+         *
+         * @returns {Promise<void>} Resolves once the subtitle is set. Returned
+         *   so a test can await it; nothing in the UI needs to.
+         */
+        async _sync() {
+            try {
+                const { dir, source } = await detectProfileDir(this._settings);
 
-            if (!dir) {
-                this.subtitle = _(
-                    'Remmina was not found. Install it, or set a directory below.',
-                );
-                return;
+                if (!dir) {
+                    this.subtitle = _(
+                        'Remmina was not found. Install it, or set a directory below.',
+                    );
+                    return;
+                }
+
+                const how = sourceLabel(source);
+                const exists = Gio.File.new_for_path(dir).query_exists(null);
+
+                this.subtitle = exists
+                    ? `${dir}\n${how}`
+                    : `${dir}\n${how} — ${_('does not exist yet')}`;
+            } catch (error) {
+                console.warn(`[quickrem] could not resolve the directory: ${error}`);
             }
-
-            const how = sourceLabel(source);
-            const exists = Gio.File.new_for_path(dir).query_exists(null);
-
-            this.subtitle = exists
-                ? `${dir}\n${how}`
-                : `${dir}\n${how} — ${_('does not exist yet')}`;
         }
     },
 );

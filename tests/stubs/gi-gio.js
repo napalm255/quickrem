@@ -50,9 +50,13 @@ export const fs = {
     /** @type {Map<string, {type: string, text: string}>} */
     entries: new Map(),
 
+    /** Paths that exist but refuse to be read. */
+    unreadable: new Set(),
+
     /** Empty the filesystem, leaving only the root. */
     reset() {
         this.entries.clear();
+        this.unreadable.clear();
         this.entries.set('/', { type: 'dir', text: '' });
     },
 
@@ -68,9 +72,13 @@ export const fs = {
      * @param {string} path File to create, with its ancestors.
      * @param {string} text Its contents.
      */
-    write(path, text) {
+    write(path, text, size) {
         this.mkdir(parentOf(path));
-        this.entries.set(path, { type: 'file', text });
+        this.entries.set(path, {
+            type: 'file',
+            text,
+            size: size ?? text.length,
+        });
     },
 
     /**
@@ -92,10 +100,45 @@ export const fs = {
 /** Every monitor handed out, so tests can fire events on them. */
 export const monitors = [];
 
+/** Argument vectors passed to Gio.Subprocess.new, in order. */
+export const spawned = [];
+
+/** Handlers registered per MIME type. Tests populate this. */
+export const handlers = new Map();
+
+/** Every launch_uris call, in order. */
+export const launches = [];
+
+/**
+ * @param {string} id Desktop id the handler should report.
+ * @returns {object} A stand-in for a Gio.AppInfo.
+ */
+export function makeHandler(id) {
+    return {
+        get_id: () => id,
+        supports_uris: () => true,
+        launch_uris(uris, context) {
+            launches.push({ id, uris, context });
+            return true;
+        },
+    };
+}
+
+/** Every enumerator handed out, so a test can assert they were all closed. */
+export const enumerators = [];
+
+/** Enumerators that had close() called on them. */
+export const closedEnumerators = [];
+
 /** Clear the filesystem and the monitor list. Call from beforeEach. */
 export function reset() {
     fs.reset();
     monitors.length = 0;
+    enumerators.length = 0;
+    closedEnumerators.length = 0;
+    spawned.length = 0;
+    handlers.clear();
+    launches.length = 0;
 }
 
 /**
@@ -127,10 +170,17 @@ class FileInfo {
     /**
      * @param {string} name Basename.
      * @param {string} type 'dir' or 'file'.
+     * @param {number} size Size in bytes.
      */
-    constructor(name, type) {
+    constructor(name, type, size) {
         this._name = name;
         this._type = type;
+        this._size = size;
+    }
+
+    /** @returns {number} Size in bytes. */
+    get_size() {
+        return this._size;
     }
 
     /** @returns {string} The basename. */
@@ -163,8 +213,19 @@ class FileEnumerator {
 
         return this._paths.splice(0, count).map(path => {
             const name = path.slice(path.lastIndexOf('/') + 1);
-            return new FileInfo(name, fs.entries.get(path)?.type ?? 'file');
+            const entry = fs.entries.get(path);
+            return new FileInfo(
+                name,
+                entry?.type ?? 'file',
+                entry?.size ?? entry?.text?.length ?? 0,
+            );
         });
+    }
+
+    /** Release the handle, as the real enumerator requires. */
+    close() {
+        this.closed = true;
+        closedEnumerators.push(this);
     }
 }
 
@@ -242,7 +303,27 @@ class GioFile {
         if (!entry || entry.type !== 'dir')
             throw new GioError(IOErrorEnum.NOT_FOUND, `${this.path} does not exist`);
 
-        return new FileEnumerator(fs.children(this.path));
+        const enumerator = new FileEnumerator(fs.children(this.path));
+        enumerators.push(enumerator);
+        return enumerator;
+    }
+
+    /**
+     * The synchronous read. Deliberately a different shape from the async one:
+     * load_contents returns (ok, contents, etag) while the promisified
+     * load_contents_async drops the boolean. prefs.js relies on that.
+     *
+     * @returns {[boolean, Uint8Array, string]} Success, contents and etag.
+     */
+    load_contents() {
+        if (fs.unreadable.has(this.path))
+            throw new GioError(IOErrorEnum.PERMISSION_DENIED, `${this.path} denied`);
+
+        const entry = fs.entries.get(this.path);
+        if (!entry || entry.type !== 'file')
+            throw new GioError(IOErrorEnum.NOT_FOUND, `${this.path} does not exist`);
+
+        return [true, new TextEncoder().encode(entry.text), 'etag'];
     }
 
     /**
@@ -254,6 +335,9 @@ class GioFile {
      */
     async load_contents_async(cancellable) {
         throwIfCancelled(cancellable);
+
+        if (fs.unreadable.has(this.path))
+            throw new GioError(IOErrorEnum.PERMISSION_DENIED, `${this.path} denied`);
 
         const entry = fs.entries.get(this.path);
         if (!entry || entry.type !== 'file')
@@ -290,6 +374,26 @@ export default {
 
     FileEnumerator,
     Cancellable,
+
+    AppInfo: {
+        /**
+         * @param {string} type A MIME type.
+         * @returns {object|null} The registered handler, or null.
+         */
+        get_default_for_type: type => handlers.get(type) ?? null,
+    },
+
+    Subprocess: {
+        /**
+         * @param {Array<string>} argv Argument vector.
+         * @param {number} flags Ignored.
+         * @returns {object} A stand-in for the subprocess.
+         */
+        new(argv, flags) {
+            spawned.push({ argv, flags });
+            return {};
+        },
+    },
 
     /** Never reached: everything the store promisifies is already a promise. */
     _promisify() {

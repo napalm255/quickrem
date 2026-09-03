@@ -67,6 +67,20 @@ export default {
         return id;
     },
 
+    /**
+     * @param {string} command A command line.
+     * @returns {[boolean, Array<string>]} Success and the argument vector.
+     * @throws {Error} On unbalanced quotes, as GLib does.
+     */
+    shell_parse_argv(command) {
+        const argv = command.match(/"[^"]*"|'[^']*'|\S+/g) ?? [];
+
+        if (/["']/.test(command.replace(/"[^"]*"|'[^']*'/g, '')))
+            throw new Error('Text ended before matching quote was found');
+
+        return [true, argv.map(arg => arg.replace(/^["']|["']$/g, ''))];
+    },
+
     Source: {
         /**
          * @param {number} id Source to drop.

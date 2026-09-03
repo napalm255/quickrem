@@ -79,6 +79,10 @@ describe('fillPreferencesWindow', () => {
         const window = new Adw.PreferencesWindow();
         preferences.fillPreferencesWindow(window);
 
+        // The status row resolves the directory asynchronously so that it and
+        // the Shell can share one rule; let that land before asserting.
+        await statusRow(window)._sync();
+
         return window;
     }
 
@@ -110,6 +114,39 @@ describe('fillPreferencesWindow', () => {
 
         expect(status.subtitle).toContain(FLATPAK_DATA);
         expect(status.subtitle).toContain('Flatpak');
+    });
+
+    it('reports datadir_path from remmina.pref', async () => {
+        // The path the store and this window used to probe differently.
+        fs.mkdir(FLATPAK_DATA);
+        fs.mkdir('/srv/profiles');
+        fs.write(
+            `${HOME}/.var/app/org.remmina.Remmina/config/remmina/remmina.pref`,
+            '[remmina_pref]\nsecret=KEY\ndatadir_path=/srv/profiles\n',
+        );
+
+        const window = await build(new FakeSettings());
+        const status = statusRow(window);
+
+        expect(status.subtitle).toContain('/srv/profiles');
+        expect(status.subtitle).toContain('datadir_path');
+        expect(status.subtitle).not.toContain('KEY');
+    });
+
+    it('skips an unreadable remmina.pref the way the store does', async () => {
+        fs.mkdir(FLATPAK_DATA);
+        const nativePref = `${HOME}/.config/remmina/remmina.pref`;
+        fs.write(nativePref, '[remmina_pref]\n');
+        fs.unreadable.add(nativePref);
+        fs.write(
+            `${HOME}/.var/app/org.remmina.Remmina/config/remmina/remmina.pref`,
+            '[remmina_pref]\ndatadir_path=/srv/profiles\n',
+        );
+        fs.mkdir('/srv/profiles');
+
+        const window = await build(new FakeSettings());
+
+        expect(statusRow(window).subtitle).toContain('/srv/profiles');
     });
 
     it('says so when the resolved directory does not exist yet', async () => {

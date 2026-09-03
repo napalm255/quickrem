@@ -11,6 +11,11 @@
 // key=value lines, which is small enough to parse here, and keeping `gi://GLib`
 // out of the module most worth testing exhaustively is worth the trade.
 
+// paths.js imports nothing either, so taking the suffix from it keeps this
+// module loadable by Vitest and by the preferences process while leaving one
+// definition of what a profile file is called.
+import { PROFILE_SUFFIX } from './paths.js';
+
 /** The one section header a .remmina file has. */
 const SECTION = 'remmina';
 
@@ -72,7 +77,7 @@ function unescapeValue(value) {
  */
 function stemOf(path) {
     const base = path.slice(path.lastIndexOf('/') + 1);
-    return base.endsWith('.remmina') ? base.slice(0, -'.remmina'.length) : base;
+    return base.endsWith(PROFILE_SUFFIX) ? base.slice(0, -PROFILE_SUFFIX.length) : base;
 }
 
 /**
@@ -144,6 +149,50 @@ export function parseProfile(text, path) {
  */
 export function sortProfiles(profiles) {
     return [...profiles].sort((a, b) => a.name.localeCompare(b.name));
+}
+
+/**
+ * Whether two profiles describe the same connection.
+ *
+ * Fields are compared by name rather than by iterating keys, so a value read
+ * out of a file is never used as an object key.
+ *
+ * @param {object} a A profile.
+ * @param {object} b Another profile.
+ * @returns {boolean} Whether every field matches.
+ */
+function sameProfile(a, b) {
+    return (
+        a.path === b.path &&
+        a.name === b.name &&
+        a.group === b.group &&
+        a.protocol === b.protocol &&
+        a.server === b.server &&
+        a.username === b.username
+    );
+}
+
+/**
+ * Whether two sorted profile lists are identical.
+ *
+ * The store rescans on any event in the watched directory, and when the profile
+ * directory does not exist yet that watch sits on an ancestor which other
+ * programs write to constantly. Without this the menu would be torn down and
+ * rebuilt for each of those, losing hover and keyboard focus under the pointer.
+ *
+ * @param {Array<object>} a A sorted profile list.
+ * @param {Array<object>} b Another sorted profile list.
+ * @returns {boolean} Whether they hold the same profiles in the same order.
+ */
+export function sameProfiles(a, b) {
+    if (a.length !== b.length) return false;
+
+    // Indexed with at() rather than [i]: a bracket lookup on a value that came
+    // out of a file is the shape eslint-plugin-security flags, and avoiding it
+    // costs nothing here.
+    for (let i = 0; i < a.length; i++) if (!sameProfile(a.at(i), b.at(i))) return false;
+
+    return true;
 }
 
 /**

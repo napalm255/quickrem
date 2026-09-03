@@ -8,13 +8,13 @@ import Gio from 'gi://Gio';
 import GLib from 'gi://GLib';
 import GObject from 'gi://GObject';
 
-import { parseProfile, sortProfiles } from './profiles.js';
+import { parseProfile, sameProfiles, sortProfiles } from './profiles.js';
 import {
     PROFILE_SUFFIX,
     flatpakDataDir,
     joinPath,
-    parseDatadirPath,
     prefFileCandidates,
+    readDatadirPath,
     resolveProfileDir,
 } from './paths.js';
 
@@ -27,6 +27,14 @@ const DEBOUNCE_MS = 300;
 
 /** How many directory entries to ask for per round trip. */
 const BATCH_SIZE = 64;
+
+/**
+ * Largest profile worth reading. A .remmina file is a few hundred bytes, so
+ * this is three orders of magnitude of headroom. It exists so that something
+ * stray in the profile directory — a backup, or a symlink pointing at something
+ * enormous — cannot be pulled into the compositor process in its entirety.
+ */
+const MAX_PROFILE_BYTES = 256 * 1024;
 
 /**
  * Promisify once, and only if nobody else got there first.
@@ -209,27 +217,17 @@ export const ProfileStore = GObject.registerClass(
                 hasNativeRemmina,
             });
 
-            for (const path of candidates) {
-                try {
-                    const [contents] =
-                        await Gio.File.new_for_path(path).load_contents_async(null);
+            // The rule for which file wins lives in paths.js, so this and the
+            // preferences window cannot drift apart. remmina.pref also holds
+            // `secret=`, the key stored passwords are encrypted with; only
+            // datadir_path comes back out of the parser, and the text is not
+            // kept.
+            return readDatadirPath(candidates, async path => {
+                const [contents] =
+                    await Gio.File.new_for_path(path).load_contents_async(null);
 
-                    // remmina.pref also holds `secret=`, the key stored
-                    // passwords are encrypted with. Only datadir_path comes
-                    // back out, and the text is not kept.
-                    const datadir = parseDatadirPath(
-                        new TextDecoder().decode(contents),
-                    );
-                    if (datadir) return datadir;
-
-                    return null;
-                } catch (error) {
-                    if (!isIOError(error, Gio.IOErrorEnum.NOT_FOUND))
-                        console.warn(`[quickrem] could not read ${path}: ${error}`);
-                }
-            }
-
-            return null;
+                return new TextDecoder().decode(contents);
+            });
         }
 
         /**
@@ -332,7 +330,15 @@ export const ProfileStore = GObject.registerClass(
             if (generation !== this._generation) return;
 
             this._cancellable = null;
-            this._profiles = sortProfiles(profiles);
+
+            // A rescan that found nothing new must not rebuild the menu: the
+            // watch can sit on a busy ancestor while the profile directory does
+            // not exist, and tearing the items down under the pointer loses
+            // hover and keyboard focus mid-interaction.
+            const sorted = sortProfiles(profiles);
+            if (sameProfiles(sorted, this._profiles)) return;
+
+            this._profiles = sorted;
             this.notify('profiles');
         }
 
@@ -345,7 +351,7 @@ export const ProfileStore = GObject.registerClass(
             let enumerator;
             try {
                 enumerator = await Gio.File.new_for_path(dir).enumerate_children_async(
-                    'standard::name,standard::type',
+                    'standard::name,standard::type,standard::size',
                     Gio.FileQueryInfoFlags.NONE,
                     GLib.PRIORITY_DEFAULT,
                     cancellable,
@@ -358,21 +364,35 @@ export const ProfileStore = GObject.registerClass(
             }
 
             const paths = [];
-            for (;;) {
-                const infos = await enumerator.next_files_async(
-                    BATCH_SIZE,
-                    GLib.PRIORITY_DEFAULT,
-                    cancellable,
-                );
-                if (infos.length === 0) break;
+            try {
+                for (;;) {
+                    const infos = await enumerator.next_files_async(
+                        BATCH_SIZE,
+                        GLib.PRIORITY_DEFAULT,
+                        cancellable,
+                    );
+                    if (infos.length === 0) break;
 
-                for (const info of infos) {
-                    const name = info.get_name();
-                    if (!name.endsWith(PROFILE_SUFFIX)) continue;
-                    if (info.get_file_type() === Gio.FileType.DIRECTORY) continue;
+                    for (const info of infos) {
+                        const name = info.get_name();
+                        if (!name.endsWith(PROFILE_SUFFIX)) continue;
+                        if (info.get_file_type() === Gio.FileType.DIRECTORY) continue;
 
-                    paths.push(joinPath(dir, name));
+                        if (info.get_size() > MAX_PROFILE_BYTES) {
+                            console.warn(
+                                `[quickrem] skipping ${name}: ${info.get_size()} bytes`,
+                            );
+                            continue;
+                        }
+
+                        paths.push(joinPath(dir, name));
+                    }
                 }
+            } finally {
+                // Every scan opens one of these and a watch on a busy directory
+                // can scan often, so the handle is closed here rather than left
+                // for the garbage collector.
+                enumerator.close(null);
             }
 
             const profiles = [];

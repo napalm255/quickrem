@@ -1,6 +1,12 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-import Gio, { fs, monitors, reset as resetGio } from './stubs/gi-gio.js';
+import Gio, {
+    closedEnumerators,
+    enumerators,
+    fs,
+    monitors,
+    reset as resetGio,
+} from './stubs/gi-gio.js';
 import { env, runTimeouts, timeouts, reset as resetGLib } from './stubs/gi-glib.js';
 import { SignalEmitter } from './stubs/gi-gobject.js';
 import { ProfileStore } from '../modules/store.js';
@@ -348,5 +354,78 @@ describe('destroy', () => {
 
         store.destroy();
         expect(() => store.destroy()).not.toThrow();
+    });
+});
+
+describe('scanning hygiene', () => {
+    beforeEach(() => fs.mkdir(FLATPAK_DATA));
+
+    it('closes every enumerator it opens', async () => {
+        writeProfile('a.remmina', { name: 'A' });
+        await newStore();
+
+        expect(enumerators.length).toBeGreaterThan(0);
+        expect(closedEnumerators.length).toBe(enumerators.length);
+    });
+
+    it('skips an implausibly large file rather than reading it', async () => {
+        writeProfile('normal.remmina', { name: 'Normal' });
+        // A stray backup or a symlink to something enormous must not be pulled
+        // into the compositor process.
+        fs.write(
+            `${FLATPAK_DATA}/huge.remmina`,
+            '[remmina]\nname=Huge\n',
+            4 * 1024 * 1024,
+        );
+
+        const store = await newStore();
+
+        expect(store.profiles.map(p => p.name)).toEqual(['Normal']);
+    });
+
+    it('keeps the rest of the list when one profile cannot be read', async () => {
+        writeProfile('good.remmina', { name: 'Good' });
+        writeProfile('bad.remmina', { name: 'Bad' });
+        fs.unreadable.add(`${FLATPAK_DATA}/bad.remmina`);
+
+        const store = await newStore();
+
+        expect(store.profiles.map(p => p.name)).toEqual(['Good']);
+    });
+
+    it('does not rebuild the menu when a rescan finds nothing new', async () => {
+        writeProfile('a.remmina', { name: 'Stable' });
+        const store = await newStore();
+
+        let notifications = 0;
+        store.connect('notify::profiles', () => notifications++);
+
+        // The watch sits on a busy ancestor whenever the profile directory does
+        // not exist yet, so unrelated events are the normal case, not the
+        // exception. Rebuilding on those drops hover and focus under the mouse.
+        for (let i = 0; i < 3; i++) {
+            monitors.at(-1).fire();
+            runTimeouts();
+            await settle();
+        }
+
+        expect(notifications).toBe(0);
+        expect(store.profiles.map(p => p.name)).toEqual(['Stable']);
+    });
+
+    it('still notifies when a rescan does find a change', async () => {
+        writeProfile('a.remmina', { name: 'Stable' });
+        const store = await newStore();
+
+        let notifications = 0;
+        store.connect('notify::profiles', () => notifications++);
+
+        writeProfile('b.remmina', { name: 'New' });
+        monitors.at(-1).fire();
+        runTimeouts();
+        await settle();
+
+        expect(notifications).toBe(1);
+        expect(store.profiles.map(p => p.name)).toEqual(['New', 'Stable']);
     });
 });
