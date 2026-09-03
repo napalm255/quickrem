@@ -29,6 +29,7 @@
                     <li><a href="#architecture">Architecture</a></li>
                     <li><a href="#testing">Testing</a></li>
                     <li><a href="#packaging">Packaging</a></li>
+                    <li><a href="#contributing">Contributing</a></li>
                     <li><a href="#releasing">Releasing</a></li>
                     <li><a href="#development">Development</a></li>
                 </ul>
@@ -354,12 +355,33 @@ just enable</code></pre>
                 <code>metadata.json</code> sits at the archive root.
             </p>
 
+            <h2 id="contributing">Contributing</h2>
+            <p>
+                <code>main</code> is protected: no direct pushes, no force-pushes and no
+                merge commits. Everything lands through a pull request whose title is a
+                Conventional Commit — that title becomes the squashed commit subject, so
+                the convention survives the merge.
+            </p>
+            <pre><code>git switch -c type/short-description
+just ci
+gh pr create --fill
+gh pr merge --squash --auto</code></pre>
+            <p>
+                <code>ci</code> and <code>CodeQL</code> have to pass before the merge
+                button unlocks, and the branch has to be current with <code>main</code>.
+                No approving review is required, so a single maintainer is not locked
+                out of their own repository.
+            </p>
+
             <h2 id="releasing">Releasing</h2>
             <p>
                 Set the version in <code>metadata.json</code> and
-                <code>package.json</code>, commit, then tag and push:
+                <code>package.json</code> and land that through a pull request like
+                anything else. Then tag the merged commit and push the tag — tags are
+                not covered by branch protection:
             </p>
-            <pre><code>git tag -a v0.1.0 -m 'release v0.1.0'
+            <pre><code>git switch main &amp;&amp; git pull
+git tag -a v0.1.0 -m 'release v0.1.0'
 git push origin v0.1.0</code></pre>
             <p>
                 The release workflow checks the tag against both files before it builds

@@ -130,10 +130,38 @@ navigation, open-state propagation and activation all survive the swap. The cap
 is recomputed on every rebuild and every menu open, which picks up a monitor or
 text-scaling change without watching for either.
 
+## Contributing
+
+`main` is protected: it takes no direct pushes, no force-pushes and no merge
+commits. Everything lands through a pull request whose title is a Conventional
+Commit — that title becomes the squashed commit subject, so the convention
+survives the merge.
+
+```
+git switch -c type/short-description
+just ci
+gh pr create --fill
+gh pr merge --squash --auto
+```
+
+`ci` and `CodeQL` have to pass before the merge button unlocks, and the branch
+has to be current with `main`. No approving review is required, so a single
+maintainer is not locked out of their own repository.
+
 ## Releasing
 
-Set the version in `metadata.json` and `package.json`, commit, then tag and
-push. CI checks the tag against both files before it builds anything.
+Set the version in `metadata.json` and `package.json` and land that through a
+pull request like anything else. Then tag the merged commit on `main` and push
+the tag — tags are not covered by branch protection:
+
+```
+git switch main && git pull
+git tag -a v0.1.0 -m 'release v0.1.0'
+git push origin v0.1.0
+```
+
+CI checks the tag against both files before it builds anything, so a tag that
+disagrees with the tree fails instead of shipping a mislabelled zip.
 
 ## Licence
 
