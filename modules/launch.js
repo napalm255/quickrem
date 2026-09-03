@@ -45,6 +45,34 @@ function spawnOverride(command, path) {
 }
 
 /**
+ * Apply the `launch-command` override if there is one, else run the fallback.
+ *
+ * Both entry points share this so the override — which carries the argv
+ * invariant above — is interpreted in exactly one place, and so a menu
+ * activation can never throw into the Shell from either of them.
+ *
+ * @param {Gio.Settings} settings The extension's settings.
+ * @param {string|null} path Profile to open, or null for the main window.
+ * @param {string} what What was being attempted, for the warning.
+ * @param {Function} fallback Run when no override is configured.
+ */
+function launchWith(settings, path, what, fallback) {
+    try {
+        const override = settings.get_string('launch-command').trim();
+        if (override !== '') {
+            spawnOverride(override, path);
+            return;
+        }
+
+        fallback();
+    } catch (error) {
+        // A failed launch is the user's problem to see in the log, never the
+        // Shell's problem to crash on.
+        console.warn(`[quickrem] could not ${what}: ${error}`);
+    }
+}
+
+/**
  * Open one saved profile.
  *
  * The default path goes through the handler registered for
@@ -57,13 +85,7 @@ function spawnOverride(command, path) {
  * @param {Gio.Settings} settings The extension's settings.
  */
 export function launchProfile(profile, settings) {
-    try {
-        const override = settings.get_string('launch-command').trim();
-        if (override !== '') {
-            spawnOverride(override, profile.path);
-            return;
-        }
-
+    launchWith(settings, profile.path, `open ${profile.path}`, () => {
         const handler = Gio.AppInfo.get_default_for_type(PROFILE_MIME_TYPE, false);
         if (!handler) {
             console.warn(
@@ -74,11 +96,7 @@ export function launchProfile(profile, settings) {
 
         const uri = Gio.File.new_for_path(profile.path).get_uri();
         handler.launch_uris([uri], launchContext());
-    } catch (error) {
-        // A failed launch is the user's problem to see in the log, never the
-        // Shell's problem to crash on.
-        console.warn(`[quickrem] could not open ${profile.path}: ${error}`);
-    }
+    });
 }
 
 /**
@@ -87,13 +105,7 @@ export function launchProfile(profile, settings) {
  * @param {Gio.Settings} settings The extension's settings.
  */
 export function launchRemmina(settings) {
-    try {
-        const override = settings.get_string('launch-command').trim();
-        if (override !== '') {
-            spawnOverride(override, null);
-            return;
-        }
-
+    launchWith(settings, null, 'start Remmina', () => {
         // Shell.AppSystem rather than Gio.DesktopAppInfo, which GJS has
         // deprecated in favour of a platform-specific library. Shell.App also
         // brings its own launch context, so the window lands on the current
@@ -105,7 +117,5 @@ export function launchRemmina(settings) {
         }
 
         app.activate();
-    } catch (error) {
-        console.warn(`[quickrem] could not start Remmina: ${error}`);
-    }
+    });
 }
