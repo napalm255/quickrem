@@ -8,40 +8,13 @@ import Gio, {
     reset as resetGio,
 } from './stubs/gi-gio.js';
 import { env, runTimeouts, timeouts, reset as resetGLib } from './stubs/gi-glib.js';
-import { SignalEmitter } from './stubs/gi-gobject.js';
+import { FakeSettings } from './stubs/settings.js';
+import { flatpakConfigDir, flatpakDataDir } from '../modules/paths.js';
 import { ProfileStore } from '../modules/store.js';
 
 const HOME = '/home/tester';
-const FLATPAK_DATA = `${HOME}/.var/app/org.remmina.Remmina/data/remmina`;
-const FLATPAK_CONFIG = `${HOME}/.var/app/org.remmina.Remmina/config/remmina`;
-
-/** Stands in for the Gio.Settings the extension hands the store. */
-class FakeSettings extends SignalEmitter {
-    /**
-     * @param {object} values Initial key/value pairs.
-     */
-    constructor(values = {}) {
-        super();
-        this.values = new Map(Object.entries(values));
-    }
-
-    /**
-     * @param {string} key Schema key.
-     * @returns {string} Its value, or ''.
-     */
-    get_string(key) {
-        return this.values.get(key) ?? '';
-    }
-
-    /**
-     * @param {string} key Schema key.
-     * @param {string} value New value.
-     */
-    set_string(key, value) {
-        this.values.set(key, value);
-        this.emit(`changed::${key}`);
-    }
-}
+const FLATPAK_DATA = flatpakDataDir(HOME);
+const FLATPAK_CONFIG = flatpakConfigDir(HOME);
 
 /** Let every pending promise in the store finish. */
 async function settle() {

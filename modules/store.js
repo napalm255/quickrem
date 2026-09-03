@@ -8,15 +8,9 @@ import Gio from 'gi://Gio';
 import GLib from 'gi://GLib';
 import GObject from 'gi://GObject';
 
+import { detectProfileDir } from './detect.js';
 import { parseProfile, sameProfiles, sortProfiles } from './profiles.js';
-import {
-    PROFILE_SUFFIX,
-    flatpakDataDir,
-    joinPath,
-    prefFileCandidates,
-    readDatadirPath,
-    resolveProfileDir,
-} from './paths.js';
+import { PROFILE_SUFFIX, joinPath } from './paths.js';
 
 /**
  * Remmina rewrites a profile in several steps when it saves, and a file
@@ -35,6 +29,9 @@ const BATCH_SIZE = 64;
  * enormous — cannot be pulled into the compositor process in its entirety.
  */
 const MAX_PROFILE_BYTES = 256 * 1024;
+
+/** Stateless for these calls, so one is reused rather than one per file read. */
+const DECODER = new TextDecoder();
 
 /**
  * Promisify once, and only if nobody else got there first.
@@ -170,23 +167,19 @@ export const ProfileStore = GObject.registerClass(
 
         /** Probe the system, decide on a directory, then watch and scan it. */
         async _resolve() {
-            const home = GLib.get_home_dir();
-            const hasNativeRemmina = GLib.find_program_in_path('remmina') !== null;
-            const hasFlatpakData = Gio.File.new_for_path(
-                flatpakDataDir(home),
-            ).query_exists(null);
-
-            const datadirPath = await this._readDatadirPath({ home, hasNativeRemmina });
-            if (!this._settings) return;
-
-            const { dir, source } = resolveProfileDir({
+            // The probe and the precedence rules both live in detect.js, so
+            // this and the preferences window cannot drift apart. Only the
+            // reader differs: the Shell must not block the compositor.
+            const { dir, source } = await detectProfileDir({
                 override: this._settings.get_string('profile-dir'),
-                datadirPath,
-                home,
-                xdgDataHome: GLib.getenv('XDG_DATA_HOME'),
-                hasNativeRemmina,
-                hasFlatpakData,
+                readText: async path => {
+                    const [contents] =
+                        await Gio.File.new_for_path(path).load_contents_async(null);
+
+                    return DECODER.decode(contents);
+                },
             });
+            if (!this._settings) return;
 
             if ((dir ?? '') !== this._directory) {
                 this._directory = dir ?? '';
@@ -200,34 +193,6 @@ export const ProfileStore = GObject.registerClass(
 
             this._watch();
             await this._refresh();
-        }
-
-        /**
-         * Read `datadir_path` out of whichever remmina.pref exists.
-         *
-         * @param {object} env Probe results.
-         * @param {string} env.home The user's home directory.
-         * @param {boolean} env.hasNativeRemmina Whether `remmina` is on PATH.
-         * @returns {Promise<string|null>} The configured directory, or null.
-         */
-        async _readDatadirPath({ home, hasNativeRemmina }) {
-            const candidates = prefFileCandidates({
-                home,
-                xdgConfigHome: GLib.getenv('XDG_CONFIG_HOME'),
-                hasNativeRemmina,
-            });
-
-            // The rule for which file wins lives in paths.js, so this and the
-            // preferences window cannot drift apart. remmina.pref also holds
-            // `secret=`, the key stored passwords are encrypted with; only
-            // datadir_path comes back out of the parser, and the text is not
-            // kept.
-            return readDatadirPath(candidates, async path => {
-                const [contents] =
-                    await Gio.File.new_for_path(path).load_contents_async(null);
-
-                return new TextDecoder().decode(contents);
-            });
         }
 
         /**
@@ -388,12 +353,35 @@ export const ProfileStore = GObject.registerClass(
             if (!name.endsWith(PROFILE_SUFFIX)) return null;
             if (info.get_file_type() === Gio.FileType.DIRECTORY) return null;
 
-            if (info.get_size() > MAX_PROFILE_BYTES) {
-                console.warn(`[quickrem] skipping ${name}: ${info.get_size()} bytes`);
+            const size = info.get_size();
+            if (size > MAX_PROFILE_BYTES) {
+                console.warn(`[quickrem] skipping ${name}: ${size} bytes`);
                 return null;
             }
 
             return joinPath(dir, name);
+        }
+
+        /**
+         * @param {string} path Profile to read.
+         * @param {Gio.Cancellable} cancellable Cancelled when superseded.
+         * @returns {Promise<object|null>} The parsed profile, or null when it
+         *   could not be read.
+         */
+        async _readProfile(path, cancellable) {
+            try {
+                const [contents] =
+                    await Gio.File.new_for_path(path).load_contents_async(cancellable);
+
+                return parseProfile(DECODER.decode(contents), path);
+            } catch (error) {
+                if (isIOError(error, Gio.IOErrorEnum.CANCELLED)) throw error;
+
+                // One unreadable profile must not cost the user the rest of
+                // the list.
+                console.warn(`[quickrem] skipping ${path}: ${error}`);
+                return null;
+            }
         }
 
         /**
@@ -418,27 +406,16 @@ export const ProfileStore = GObject.registerClass(
             }
 
             const paths = await this._collectPaths(enumerator, dir, cancellable);
-            const profiles = [];
-            for (const path of paths) {
-                try {
-                    const [contents] =
-                        await Gio.File.new_for_path(path).load_contents_async(
-                            cancellable,
-                        );
 
-                    profiles.push(
-                        parseProfile(new TextDecoder().decode(contents), path),
-                    );
-                } catch (error) {
-                    if (isIOError(error, Gio.IOErrorEnum.CANCELLED)) throw error;
+            // The reads are independent, so they go out together rather than
+            // one round trip at a time — on a network-mounted home the
+            // sequential version was latency-bound in the profile count.
+            // Promise.all preserves order, and sortProfiles reorders anyway.
+            const profiles = await Promise.all(
+                paths.map(path => this._readProfile(path, cancellable)),
+            );
 
-                    // One unreadable profile must not cost the user the rest of
-                    // the list.
-                    console.warn(`[quickrem] skipping ${path}: ${error}`);
-                }
-            }
-
-            return profiles;
+            return profiles.filter(profile => profile !== null);
         }
     },
 );

@@ -19,6 +19,7 @@ import {
 } from 'resource:///org/gnome/shell/extensions/extension.js';
 
 import { launchProfile, launchRemmina } from './launch.js';
+import { joinPath } from './paths.js';
 import { profileDetail, protocolIcon } from './profiles.js';
 
 /**
@@ -179,9 +180,10 @@ const RemminaToggle = GObject.registerClass(
         /**
          * @param {object} extension The Extension instance.
          * @param {object} store A ProfileStore.
+         * @param {Gio.Settings} settings The extension's settings.
          * @param {Gio.Icon} gicon Icon for the tile and the menu header.
          */
-        constructor(extension, store, gicon) {
+        constructor(extension, store, settings, gicon) {
             super({
                 title: _('Remmina'),
                 gicon,
@@ -192,7 +194,7 @@ const RemminaToggle = GObject.registerClass(
             });
 
             this._extension = extension;
-            this._settings = extension.getSettings();
+            this._settings = settings;
             this._store = store;
             this._gicon = gicon;
 
@@ -218,34 +220,25 @@ const RemminaToggle = GObject.registerClass(
             );
             this.menu.addMenuItem(new PopupMenu.PopupSeparatorMenuItem());
 
-            const open = new PopupMenu.PopupMenuItem(_('Open Remmina…'));
-            open.connectObject(
-                'activate',
-                () => {
-                    this._closePanel();
-                    launchRemmina(this._settings);
-                },
-                this,
+            this.menu.addMenuItem(
+                this._onActivate(new PopupMenu.PopupMenuItem(_('Open Remmina…')), () =>
+                    launchRemmina(this._settings),
+                ),
             );
-            this.menu.addMenuItem(open);
 
-            const preferences = new PopupMenu.PopupMenuItem(_('Settings'));
-            preferences.connectObject(
-                'activate',
-                () => {
-                    this._closePanel();
-                    this._extension.openPreferences();
-                },
-                this,
+            this.menu.addMenuItem(
+                this._onActivate(new PopupMenu.PopupMenuItem(_('Settings')), () =>
+                    this._extension.openPreferences(),
+                ),
             );
-            this.menu.addMenuItem(preferences);
 
-            // The directory matters as well as the contents: it is what tells
-            // an empty list apart from a missing Remmina.
+            // How the directory was chosen matters as well as the contents:
+            // `source === 'none'` is what tells an empty list apart from a
+            // missing Remmina, and _emptyItem() switches on it.
             store.connectObject(
                 'notify::profiles',
                 () => this._rebuild(),
-                'notify::directory',
+                'notify::source',
                 () => this._rebuild(),
                 this,
             );
@@ -256,6 +249,29 @@ const RemminaToggle = GObject.registerClass(
         /** Close the whole system menu, not just this tile's submenu. */
         _closePanel() {
             Main.panel.statusArea.quickSettings.menu.close();
+        }
+
+        /**
+         * Wire an item so activating it closes the panel and does one thing.
+         *
+         * Every item in this menu wants that pair, and the `this` detach
+         * argument has to be passed each time or the handler outlives the item.
+         *
+         * @param {object} item A menu item.
+         * @param {Function} action What activating it should do.
+         * @returns {object} The same item, for use as an argument.
+         */
+        _onActivate(item, action) {
+            item.connectObject(
+                'activate',
+                () => {
+                    this._closePanel();
+                    action();
+                },
+                this,
+            );
+
+            return item;
         }
 
         /** Rebuild the profile list from the store. */
@@ -275,26 +291,22 @@ const RemminaToggle = GObject.registerClass(
 
             if (profiles.length === 0) {
                 this._section.addMenuItem(this._emptyItem());
-                this._section.updateHeight();
-                return;
+            } else {
+                for (const profile of profiles) {
+                    this._section.addMenuItem(
+                        this._onActivate(new ProfileItem(profile), () =>
+                            launchProfile(profile, this._settings),
+                        ),
+                    );
+                }
             }
 
-            for (const profile of profiles) {
-                const item = new ProfileItem(profile);
-
-                item.connectObject(
-                    'activate',
-                    () => {
-                        this._closePanel();
-                        launchProfile(profile, this._settings);
-                    },
-                    this,
-                );
-
-                this._section.addMenuItem(item);
-            }
-
-            this._section.updateHeight();
+            // updateHeight() measures every row, and the rebuild above has just
+            // invalidated the box. While the menu is shut nobody can see the
+            // result and the open-state handler measures again on the way in,
+            // so the work is left to then. (PopupMenuSection.isOpen is
+            // hardcoded true, so the real menu has to be the one asked.)
+            if (this.menu.isOpen) this._section.updateHeight();
         }
 
         /**
@@ -306,27 +318,20 @@ const RemminaToggle = GObject.registerClass(
             // item opens the preferences where the directory can be set. An
             // empty but valid directory is not — Open Remmina… below it is the
             // useful action — so that one stays inert.
-            if (this._store.directory === '') {
-                const item = new PopupMenu.PopupMenuItem(_('Remmina not found'));
-                item.connectObject(
-                    'activate',
-                    () => {
-                        this._closePanel();
-                        this._extension.openPreferences();
-                    },
-                    this,
+            if (this._store.source === 'none') {
+                return this._onActivate(
+                    new PopupMenu.PopupMenuItem(_('Remmina not found')),
+                    () => this._extension.openPreferences(),
                 );
-
-                return item;
             }
 
-            const item = new PopupMenu.PopupMenuItem(_('No profiles saved'), {
+            // `reactive: false` already leaves the item unactivatable and gives
+            // it the inactive style class, so setSensitive() would only re-set
+            // what it already holds.
+            return new PopupMenu.PopupMenuItem(_('No profiles saved'), {
                 reactive: false,
                 can_focus: false,
             });
-            item.setSensitive(false);
-
-            return item;
         }
 
         destroy() {
@@ -350,17 +355,20 @@ export const RemminaIndicator = GObject.registerClass(
         /**
          * @param {object} extension The Extension instance.
          * @param {object} store A ProfileStore.
+         * @param {Gio.Settings} settings The extension's settings.
          */
-        constructor(extension, store) {
+        constructor(extension, store, settings) {
             super();
 
             // No _addIndicator(): Remmina is not a status, and a permanent top
             // bar icon that never changes is noise. The tile is the whole UI.
             const gicon = Gio.icon_new_for_string(
-                `${extension.path}/icons/quickrem-symbolic.svg`,
+                joinPath(extension.path, 'icons/quickrem-symbolic.svg'),
             );
 
-            this.quickSettingsItems.push(new RemminaToggle(extension, store, gicon));
+            this.quickSettingsItems.push(
+                new RemminaToggle(extension, store, settings, gicon),
+            );
         }
 
         destroy() {
