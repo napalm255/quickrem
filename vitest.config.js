@@ -45,6 +45,7 @@ export default defineConfig({
             { find: 'gi://GLib', replacement: stub('gi-glib') },
             { find: 'gi://GObject', replacement: stub('gi-gobject') },
             { find: 'gi://Adw', replacement: stub('gi-adw') },
+            { find: 'gi://Shell', replacement: stub('gi-shell') },
             {
                 find: 'resource:///org/gnome/Shell/Extensions/js/extensions/prefs.js',
                 replacement: stub('shell-prefs'),
