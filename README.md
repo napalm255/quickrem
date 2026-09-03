@@ -6,6 +6,9 @@ Open the system menu, click the Remmina tile, pick a saved connection. The list
 is read from Remmina's own profile directory and follows it as it changes, so a
 connection saved in Remmina shows up here without a reload.
 
+**[Documentation →](https://begibson.com/quickrem/)** — profiles, launching,
+secrets, architecture, testing, packaging and releasing.
+
 ## What it does
 
 - Lists every saved `.remmina` profile, sorted by name, with an icon per
