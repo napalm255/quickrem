@@ -1,6 +1,6 @@
 {
     "name": "quickrem",
-    "version": "0.1.0",
+    "version": "0.1.1",
     "description": "Remmina connections in the GNOME Shell Quick Settings panel",
     "license": "GPL-3.0-or-later",
     "private": true,

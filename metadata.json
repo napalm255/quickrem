@@ -6,5 +6,5 @@
     "url": "https://github.com/napalm255/quickrem",
     "settings-schema": "org.gnome.shell.extensions.quickrem",
     "gettext-domain": "quickrem",
-    "version-name": "0.1.0"
+    "version-name": "0.1.1"
 }
