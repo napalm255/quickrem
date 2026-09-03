@@ -4,39 +4,11 @@ import Adw from './stubs/gi-adw.js';
 import { fs, reset as resetGio } from './stubs/gi-gio.js';
 import { env, reset as resetGLib } from './stubs/gi-glib.js';
 import { ExtensionPreferences } from './stubs/shell-prefs.js';
-import { SignalEmitter } from './stubs/gi-gobject.js';
+import { FakeSettings } from './stubs/settings.js';
+import { flatpakDataDir } from '../modules/paths.js';
 
 const HOME = '/home/tester';
-const FLATPAK_DATA = `${HOME}/.var/app/org.remmina.Remmina/data/remmina`;
-
-/** Stands in for the Gio.Settings the preferences window binds to. */
-class FakeSettings extends SignalEmitter {
-    /**
-     * @param {object} values Initial key/value pairs.
-     */
-    constructor(values = {}) {
-        super();
-        this.values = new Map(Object.entries(values));
-        this.bound = [];
-    }
-
-    /**
-     * @param {string} key Schema key.
-     * @returns {string} Its value, or ''.
-     */
-    get_string(key) {
-        return this.values.get(key) ?? '';
-    }
-
-    /**
-     * @param {string} key Schema key.
-     * @param {object} object Widget to bind to.
-     * @param {string} property Property to bind.
-     */
-    bind(key, object, property) {
-        this.bound.push({ key, object, property });
-    }
-}
+const FLATPAK_DATA = flatpakDataDir(HOME);
 
 /**
  * @returns {Promise<object>} A freshly imported prefs.js module.

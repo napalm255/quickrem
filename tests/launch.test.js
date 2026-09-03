@@ -8,30 +8,18 @@ import {
     reset as resetGio,
 } from './stubs/gi-gio.js';
 import { activations, registerApp, reset as resetShell } from './stubs/gi-shell.js';
-import { SignalEmitter } from './stubs/gi-gobject.js';
+import { FakeSettings } from './stubs/settings.js';
 import { launchProfile, launchRemmina } from '../modules/launch.js';
 
 const MIME = 'application/x-remmina';
 const DESKTOP_ID = 'org.remmina.Remmina.desktop';
 
-/** Stands in for the Gio.Settings the panel passes in. */
-class FakeSettings extends SignalEmitter {
-    /**
-     * @param {string} launchCommand The launch-command setting.
-     */
-    constructor(launchCommand = '') {
-        super();
-        this.launchCommand = launchCommand;
-    }
-
-    /**
-     * @param {string} key Schema key.
-     * @returns {string} Its value.
-     */
-    get_string(key) {
-        return key === 'launch-command' ? this.launchCommand : '';
-    }
-}
+/**
+ * @param {string} launchCommand The launch-command setting.
+ * @returns {FakeSettings} Settings holding just that key.
+ */
+const settingsWith = launchCommand =>
+    new FakeSettings({ 'launch-command': launchCommand });
 
 const profile = (path = '/profiles/a.remmina') => ({ name: 'A', path });
 
@@ -62,7 +50,7 @@ describe('launchProfile', () => {
     it('prefers an explicit launch-command over the handler', () => {
         handlers.set(MIME, makeHandler('org.remmina.Remmina-file.desktop'));
 
-        launchProfile(profile(), new FakeSettings('myremmina --connect'));
+        launchProfile(profile(), settingsWith('myremmina --connect'));
 
         expect(launches).toHaveLength(0);
         expect(spawned[0].argv).toEqual([
@@ -79,7 +67,7 @@ describe('launchProfile', () => {
         // anything that can write to the profile directory.
         const nasty = '/profiles/a; rm -rf ~/.ssh; echo .remmina';
 
-        launchProfile(profile(nasty), new FakeSettings('myremmina --connect'));
+        launchProfile(profile(nasty), settingsWith('myremmina --connect'));
 
         expect(spawned[0].argv).toEqual(['myremmina', '--connect', nasty]);
         expect(spawned[0].argv).toHaveLength(3);
@@ -89,7 +77,7 @@ describe('launchProfile', () => {
         // An unbalanced quote makes shell_parse_argv throw. That must not
         // escape into the Shell from a menu activation.
         expect(() =>
-            launchProfile(profile(), new FakeSettings('myremmina "unclosed')),
+            launchProfile(profile(), settingsWith('myremmina "unclosed')),
         ).not.toThrow();
 
         expect(spawned).toHaveLength(0);
@@ -98,7 +86,7 @@ describe('launchProfile', () => {
     it('trims a launch-command that is only whitespace and uses the handler', () => {
         handlers.set(MIME, makeHandler('org.remmina.Remmina-file.desktop'));
 
-        launchProfile(profile(), new FakeSettings('   '));
+        launchProfile(profile(), settingsWith('   '));
 
         expect(launches).toHaveLength(1);
         expect(spawned).toHaveLength(0);
@@ -123,7 +111,7 @@ describe('launchRemmina', () => {
     it('runs launch-command with no path appended', () => {
         registerApp(DESKTOP_ID);
 
-        launchRemmina(new FakeSettings('myremmina --tray'));
+        launchRemmina(settingsWith('myremmina --tray'));
 
         expect(activations).toHaveLength(0);
         expect(spawned[0].argv).toEqual(['myremmina', '--tray']);
