@@ -72,7 +72,10 @@ clean)
     for file in "$DIR/$PREFIX"-*.remmina; do
         [[ -e "$file" ]] || continue
         rm -f "$file"
-        ((removed++))
+        # Not ((removed++)): that evaluates to 0 the first time round, which is
+        # a non-zero exit status, and set -e then kills the script after one
+        # file with no summary and a failure code.
+        removed=$((removed + 1))
     done
     echo "removed $removed fixtures from $DIR"
     ;;

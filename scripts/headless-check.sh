@@ -109,7 +109,11 @@ wait_for() {
         (($(grep -ac "$pattern" "$LOG") >= wanted)) && return 0
         kill -0 "$SHELL_PID" 2>/dev/null || fail "gnome-shell exited early"
         sleep 1
-        ((waited++))
+        # Arithmetic form, not ((waited++)): the post-increment returns the old
+        # value, so the first iteration would exit non-zero. It is survivable
+        # here only because every call sits on the left of ||, which is the kind
+        # of accident that stops being true the moment someone calls it bare.
+        waited=$((waited + 1))
     done
     return 1
 }
