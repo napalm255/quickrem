@@ -24,7 +24,33 @@ export const PROFILE_MIME_TYPE = 'application/x-remmina';
 export const PROFILE_SUFFIX = '.remmina';
 
 /**
+ * @param {string} value A path segment.
+ * @returns {string} It, without trailing separators.
+ */
+function trimTrailingSlashes(value) {
+    let end = value.length;
+    while (end > 0 && value.charAt(end - 1) === '/') end--;
+
+    return value.slice(0, end);
+}
+
+/**
+ * @param {string} value A path segment.
+ * @returns {string} It, without leading or trailing separators.
+ */
+function trimSlashes(value) {
+    let start = 0;
+    while (start < value.length && value.charAt(start) === '/') start++;
+
+    return trimTrailingSlashes(value.slice(start));
+}
+
+/**
  * Join path segments with a single separator, ignoring empty ones.
+ *
+ * Trimmed by scanning rather than with /\/+$/ and /^\/+|\/+$/: those backtrack
+ * super-linearly on a run of separators, and one of the inputs is the
+ * user-supplied profile-dir setting.
  *
  * @param {...string} parts Segments to join.
  * @returns {string} The joined path.
@@ -32,9 +58,7 @@ export const PROFILE_SUFFIX = '.remmina';
 export function joinPath(...parts) {
     return parts
         .filter(part => part !== '' && part != null)
-        .map((part, i) =>
-            i === 0 ? part.replace(/\/+$/, '') : part.replace(/^\/+|\/+$/g, ''),
-        )
+        .map((part, i) => (i === 0 ? trimTrailingSlashes(part) : trimSlashes(part)))
         .join('/');
 }
 
