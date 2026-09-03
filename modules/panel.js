@@ -4,8 +4,10 @@
 // profile state of its own — the store owns that, and this rebuilds from
 // `notify::profiles`.
 
+import Clutter from 'gi://Clutter';
 import Gio from 'gi://Gio';
 import GObject from 'gi://GObject';
+import Pango from 'gi://Pango';
 import St from 'gi://St';
 
 import * as Main from 'resource:///org/gnome/shell/ui/main.js';
@@ -17,7 +19,7 @@ import {
 } from 'resource:///org/gnome/shell/extensions/extension.js';
 
 import { launchProfile, launchRemmina } from './launch.js';
-import { protocolIcon } from './profiles.js';
+import { profileDetail, protocolIcon } from './profiles.js';
 
 /**
  * How much of the work area the profile list may take before it starts to
@@ -118,6 +120,56 @@ class ProfileSection extends PopupMenu.PopupMenuSection {
             : St.PolicyType.NEVER;
     }
 }
+
+/**
+ * Widest the profile name may render before it is ellipsized, and the same for
+ * the dimmed detail beside it.
+ *
+ * Both come out of a file the extension does not control. Ellipsizing alone is
+ * not enough — a ClutterText still asks for the full width of its text, and
+ * measured with a 400-character name the menu ballooned to 4346px — so the
+ * labels are clamped and the ellipsis then has something to bite on.
+ */
+const NAME_MAX_WIDTH = '15em';
+const DETAIL_MAX_WIDTH = '10em';
+
+/**
+ * One profile in the list: protocol icon, name, and a dimmed `user@host`.
+ */
+const ProfileItem = GObject.registerClass(
+    {
+        GTypeName: 'QuickRemProfileItem',
+    },
+    class ProfileItem extends PopupMenu.PopupImageMenuItem {
+        /**
+         * @param {object} profile A profile from the store.
+         */
+        constructor(profile) {
+            super(profile.name, protocolIcon(profile.protocol));
+
+            this.label.x_expand = true;
+            this.label.style = `max-width: ${NAME_MAX_WIDTH};`;
+            this.label.clutter_text.ellipsize = Pango.EllipsizeMode.END;
+
+            const detail = profileDetail(profile);
+            if (detail === '') return;
+
+            const label = new St.Label({
+                text: detail,
+                style: `max-width: ${DETAIL_MAX_WIDTH};`,
+                x_align: Clutter.ActorAlign.END,
+                y_align: Clutter.ActorAlign.CENTER,
+            });
+            label.clutter_text.ellipsize = Pango.EllipsizeMode.END;
+
+            // Dimmed on the actor rather than through a style class: the
+            // extension ships no stylesheet, so a class would style nothing.
+            label.opacity = 160;
+
+            this.add_child(label);
+        }
+    },
+);
 
 const RemminaToggle = GObject.registerClass(
     {
@@ -228,10 +280,7 @@ const RemminaToggle = GObject.registerClass(
             }
 
             for (const profile of profiles) {
-                const item = new PopupMenu.PopupImageMenuItem(
-                    profile.name,
-                    protocolIcon(profile.protocol),
-                );
+                const item = new ProfileItem(profile);
 
                 item.connectObject(
                     'activate',
@@ -253,12 +302,25 @@ const RemminaToggle = GObject.registerClass(
          *   is empty: no Remmina at all, or a Remmina with nothing saved yet.
          */
         _emptyItem() {
-            const label =
-                this._store.directory === ''
-                    ? _('Remmina not found')
-                    : _('No profiles saved');
+            // Nothing found at all is something the user can act on, so that
+            // item opens the preferences where the directory can be set. An
+            // empty but valid directory is not — Open Remmina… below it is the
+            // useful action — so that one stays inert.
+            if (this._store.directory === '') {
+                const item = new PopupMenu.PopupMenuItem(_('Remmina not found'));
+                item.connectObject(
+                    'activate',
+                    () => {
+                        this._closePanel();
+                        this._extension.openPreferences();
+                    },
+                    this,
+                );
 
-            const item = new PopupMenu.PopupMenuItem(label, {
+                return item;
+            }
+
+            const item = new PopupMenu.PopupMenuItem(_('No profiles saved'), {
                 reactive: false,
                 can_focus: false,
             });

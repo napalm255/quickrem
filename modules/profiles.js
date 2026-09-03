@@ -196,6 +196,21 @@ export function sameProfiles(a, b) {
 }
 
 /**
+ * Secondary text for a profile: who connects where.
+ *
+ * Two profiles both called "prod" are otherwise indistinguishable in the menu,
+ * and the store already reads these fields.
+ *
+ * @param {object} profile A parsed profile.
+ * @returns {string} `user@host`, or the host alone, or '' when there is no host.
+ */
+export function profileDetail({ username, server }) {
+    if (!server) return '';
+
+    return username ? `${username}@${server}` : server;
+}
+
+/**
  * Symbolic icon name for a profile's protocol.
  *
  * @param {string} protocol The `protocol=` value, in any case.

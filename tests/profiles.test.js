@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 
 import {
     parseProfile,
+    profileDetail,
     protocolIcon,
     sameProfiles,
     sortProfiles,
@@ -145,6 +146,22 @@ describe('protocolIcon', () => {
     it('falls back for anything unknown or missing', () => {
         for (const value of ['', 'NX', undefined, null, 42])
             expect(protocolIcon(value)).toBe('network-server-symbolic');
+    });
+});
+
+describe('profileDetail', () => {
+    it('combines the username and server', () => {
+        expect(profileDetail({ username: 'napalm', server: 'db.example.com' })).toBe(
+            'napalm@db.example.com',
+        );
+    });
+
+    it('falls back to the server alone, and to nothing without one', () => {
+        expect(profileDetail({ username: '', server: 'db.example.com' })).toBe(
+            'db.example.com',
+        );
+        expect(profileDetail({ username: 'napalm', server: '' })).toBe('');
+        expect(profileDetail({ username: '', server: '' })).toBe('');
     });
 });
 
