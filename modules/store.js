@@ -353,12 +353,35 @@ export const ProfileStore = GObject.registerClass(
             if (!name.endsWith(PROFILE_SUFFIX)) return null;
             if (info.get_file_type() === Gio.FileType.DIRECTORY) return null;
 
-            if (info.get_size() > MAX_PROFILE_BYTES) {
-                console.warn(`[quickrem] skipping ${name}: ${info.get_size()} bytes`);
+            const size = info.get_size();
+            if (size > MAX_PROFILE_BYTES) {
+                console.warn(`[quickrem] skipping ${name}: ${size} bytes`);
                 return null;
             }
 
             return joinPath(dir, name);
+        }
+
+        /**
+         * @param {string} path Profile to read.
+         * @param {Gio.Cancellable} cancellable Cancelled when superseded.
+         * @returns {Promise<object|null>} The parsed profile, or null when it
+         *   could not be read.
+         */
+        async _readProfile(path, cancellable) {
+            try {
+                const [contents] =
+                    await Gio.File.new_for_path(path).load_contents_async(cancellable);
+
+                return parseProfile(DECODER.decode(contents), path);
+            } catch (error) {
+                if (isIOError(error, Gio.IOErrorEnum.CANCELLED)) throw error;
+
+                // One unreadable profile must not cost the user the rest of
+                // the list.
+                console.warn(`[quickrem] skipping ${path}: ${error}`);
+                return null;
+            }
         }
 
         /**
@@ -383,27 +406,16 @@ export const ProfileStore = GObject.registerClass(
             }
 
             const paths = await this._collectPaths(enumerator, dir, cancellable);
-            const profiles = [];
-            for (const path of paths) {
-                try {
-                    const [contents] =
-                        await Gio.File.new_for_path(path).load_contents_async(
-                            cancellable,
-                        );
 
-                    profiles.push(
-                        parseProfile(new TextDecoder().decode(contents), path),
-                    );
-                } catch (error) {
-                    if (isIOError(error, Gio.IOErrorEnum.CANCELLED)) throw error;
+            // The reads are independent, so they go out together rather than
+            // one round trip at a time — on a network-mounted home the
+            // sequential version was latency-bound in the profile count.
+            // Promise.all preserves order, and sortProfiles reorders anyway.
+            const profiles = await Promise.all(
+                paths.map(path => this._readProfile(path, cancellable)),
+            );
 
-                    // One unreadable profile must not cost the user the rest of
-                    // the list.
-                    console.warn(`[quickrem] skipping ${path}: ${error}`);
-                }
-            }
-
-            return profiles;
+            return profiles.filter(profile => profile !== null);
         }
     },
 );
