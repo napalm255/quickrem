@@ -13,8 +13,12 @@ import { ProfileStore } from './modules/store.js';
 
 export default class QuickRemExtension extends Extension {
     enable() {
-        this._store = new ProfileStore(this.getSettings());
-        this._indicator = new RemminaIndicator(this, this._store);
+        // One Gio.Settings for both: getSettings() re-parses the compiled
+        // schema from disk on every call.
+        const settings = this.getSettings();
+
+        this._store = new ProfileStore(settings);
+        this._indicator = new RemminaIndicator(this, this._store, settings);
 
         Main.panel.statusArea.quickSettings.addExternalIndicator(this._indicator);
 
