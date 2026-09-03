@@ -190,9 +190,7 @@ export function sameProfiles(a, b) {
     // Indexed with at() rather than [i]: a bracket lookup on a value that came
     // out of a file is the shape eslint-plugin-security flags, and avoiding it
     // costs nothing here.
-    for (let i = 0; i < a.length; i++) if (!sameProfile(a.at(i), b.at(i))) return false;
-
-    return true;
+    return a.every((profile, i) => sameProfile(profile, b.at(i)));
 }
 
 /**

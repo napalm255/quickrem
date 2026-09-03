@@ -94,7 +94,7 @@ export function nativeDataDir({ xdgDataHome, home }) {
  * @param {string} env.home The user's home directory.
  * @returns {string} Where a native Remmina keeps remmina.pref.
  */
-export function nativeConfigDir({ xdgConfigHome, home }) {
+function nativeConfigDir({ xdgConfigHome, home }) {
     return joinPath(xdgConfigHome || joinPath(home, '.config'), 'remmina');
 }
 

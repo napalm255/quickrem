@@ -4,7 +4,6 @@
 
 import Adw from 'gi://Adw';
 import Gio from 'gi://Gio';
-import GLib from 'gi://GLib';
 import GObject from 'gi://GObject';
 
 import {
@@ -12,25 +11,21 @@ import {
     gettext as _,
 } from 'resource:///org/gnome/Shell/Extensions/js/extensions/prefs.js';
 
-// modules/paths.js imports nothing, so it is safe to pull into this process.
-// Sharing it is what stops the directory shown here from drifting away from
-// the one the Shell actually reads.
-import {
-    flatpakDataDir,
-    prefFileCandidates,
-    readDatadirPath,
-    resolveProfileDir,
-} from './modules/paths.js';
+// modules/detect.js imports only gi:// and modules/paths.js, so it is safe to
+// pull into this process. Sharing the whole probe — not just the rules under it
+// — is what stops the directory shown here from drifting away from the one the
+// Shell actually reads.
+import { detectProfileDir } from './modules/detect.js';
 
 /**
- * How each outcome of resolveProfileDir reads to a person.
+ * How each outcome of the detection reads to a person.
  *
  * A function rather than a module-level table because `_()` may only be called
  * once the extension is resolved and its gettext domain is bound. Building the
  * table at module load throws "gettext can only be called from extensions" and
  * the preferences window never opens at all.
  *
- * @param {string} source A source from resolveProfileDir.
+ * @param {string} source A source from detectProfileDir.
  * @returns {string} How to describe it.
  */
 function sourceLabel(source) {
@@ -48,46 +43,30 @@ function sourceLabel(source) {
     }
 }
 
+/** Stateless for these calls, so one is reused rather than one per read. */
+const DECODER = new TextDecoder();
+
 /**
  * Work out which directory the Shell would read, right now.
  *
- * The decision is resolveProfileDir's and the rule for which remmina.pref wins
- * is readDatadirPath's; only the reading differs. Synchronous I/O is fine here
- * — this is an ordinary application process, not the compositor thread — and
- * routing it through the same shared rule is what stops this window reporting a
- * different directory than the panel actually reads.
+ * The probe and the precedence rules are detect.js's; only the reading differs.
+ * Synchronous I/O is fine here — this is an ordinary application process, not
+ * the compositor thread — and routing it through the same shared probe is what
+ * stops this window reporting a different directory than the panel reads.
  *
  * @param {Gio.Settings} settings Extension settings.
  * @returns {Promise<{dir: string|null, source: string}>} The directory and why.
  */
-async function detectProfileDir(settings) {
-    const home = GLib.get_home_dir();
-    const hasNativeRemmina = GLib.find_program_in_path('remmina') !== null;
-    const hasFlatpakData = Gio.File.new_for_path(flatpakDataDir(home)).query_exists(
-        null,
-    );
-
-    const candidates = prefFileCandidates({
-        home,
-        xdgConfigHome: GLib.getenv('XDG_CONFIG_HOME'),
-        hasNativeRemmina,
-    });
-
-    const datadirPath = await readDatadirPath(candidates, async path => {
-        // Synchronous load_contents returns (ok, contents, etag); the
-        // promisified async one drops the boolean. They genuinely differ.
-        const [, contents] = Gio.File.new_for_path(path).load_contents(null);
-
-        return new TextDecoder().decode(contents);
-    });
-
-    return resolveProfileDir({
+function detectFor(settings) {
+    return detectProfileDir({
         override: settings.get_string('profile-dir'),
-        datadirPath,
-        home,
-        xdgDataHome: GLib.getenv('XDG_DATA_HOME'),
-        hasNativeRemmina,
-        hasFlatpakData,
+        readText: async path => {
+            // Synchronous load_contents returns (ok, contents, etag); the
+            // promisified async one drops the boolean. They genuinely differ.
+            const [, contents] = Gio.File.new_for_path(path).load_contents(null);
+
+            return DECODER.decode(contents);
+        },
     });
 }
 
@@ -109,12 +88,7 @@ const StatusRow = GObject.registerClass(
             this._changedId = settings.connect('changed::profile-dir', () =>
                 this.refresh(),
             );
-            this.connect('destroy', () => {
-                if (this._changedId) {
-                    this._settings.disconnect(this._changedId);
-                    this._changedId = 0;
-                }
-            });
+            this.connect('destroy', () => this._settings.disconnect(this._changedId));
 
             // Deliberately not started here: a constructor cannot await, and a
             // promise left running from one is both unobservable and a smell.
@@ -129,7 +103,7 @@ const StatusRow = GObject.registerClass(
          */
         async refresh() {
             try {
-                const { dir, source } = await detectProfileDir(this._settings);
+                const { dir, source } = await detectFor(this._settings);
 
                 if (!dir) {
                     this.subtitle = _(
