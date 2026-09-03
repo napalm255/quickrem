@@ -91,6 +91,13 @@ runs them on plain Node. `modules/store.js` is unit-tested against an in-memory
 Gio in `tests/stubs/`, which is what makes the debounce, the generation guard
 and the watch re-attach reachable from a test.
 
+`modules/launch.js` exists so the launch path can be tested at all: `panel.js`
+imports St and QuickSettings, which a unit test cannot supply meaningfully, and
+the launch code carries this extension's one security invariant — a profile path
+is its own argument-vector element and is never interpolated into
+`launch-command`, so a profile named with a semicolon is an argument rather than
+a second command. A test fails if that stops being true.
+
 `prefs.js` is unit-tested too, mostly to pin one trap: `_()` may not be called
 while a module is being evaluated, and a translated string in a module-level
 table stops the preferences window opening at all — silently, because nothing
@@ -110,7 +117,8 @@ handler.
 | `modules/profiles.js` | nothing            | Parse a `.remmina` file, sort, map protocol to icon |
 | `modules/paths.js`    | nothing            | Decide which directory to read                      |
 | `modules/store.js`    | Gio, GLib, GObject | Scan and watch it; publish `profiles`               |
-| `modules/panel.js`    | Shell, St          | The tile, its menu, and launching                   |
+| `modules/launch.js`   | Gio, GLib, Shell   | Decide what to run, and with which arguments        |
+| `modules/panel.js`    | St, QuickSettings  | The tile, its menu and its rows                     |
 | `prefs.js`            | Adw, Gtk           | Preferences, in its own process                     |
 
 The store owns the data and the panel owns the widgets; the panel rebuilds from

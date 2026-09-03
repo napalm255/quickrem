@@ -260,9 +260,14 @@ just enable</code></pre>
                             <td>Scan and watch it; publish <code>profiles</code></td>
                         </tr>
                         <tr>
+                            <td><code>modules/launch.js</code></td>
+                            <td>Gio, GLib, Shell</td>
+                            <td>Decide what to run, and with which arguments</td>
+                        </tr>
+                        <tr>
                             <td><code>modules/panel.js</code></td>
-                            <td>Shell, St</td>
-                            <td>The tile, its menu, and launching</td>
+                            <td>St, QuickSettings</td>
+                            <td>The tile, its menu and its rows</td>
                         </tr>
                         <tr>
                             <td><code>prefs.js</code></td>
@@ -319,6 +324,16 @@ just enable</code></pre>
                 a unit test at all. Timeouts are queued rather than scheduled, so “this
                 burst of five events caused one rescan” is a direct assertion rather
                 than a sleep.
+            </p>
+            <p>
+                <code>modules/launch.js</code> is split out so the launch path can be
+                tested at all: <code>panel.js</code> imports St and QuickSettings, which
+                a unit test cannot supply meaningfully, and the launch code carries this
+                extension's one security invariant — a profile path is its own
+                argument-vector element and is never interpolated into
+                <code>launch-command</code>, so a profile named with a semicolon is an
+                argument rather than a second command. A test fails if that stops being
+                true.
             </p>
             <p>
                 <code>prefs.js</code> is tested too, mostly to pin one trap:
