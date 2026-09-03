@@ -81,7 +81,7 @@ describe('fillPreferencesWindow', () => {
 
         // The status row resolves the directory asynchronously so that it and
         // the Shell can share one rule; let that land before asserting.
-        await statusRow(window)._sync();
+        await statusRow(window).refresh();
 
         return window;
     }

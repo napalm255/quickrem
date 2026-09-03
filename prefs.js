@@ -107,7 +107,7 @@ const StatusRow = GObject.registerClass(
             this.add_css_class('property');
 
             this._changedId = settings.connect('changed::profile-dir', () =>
-                this._sync(),
+                this.refresh(),
             );
             this.connect('destroy', () => {
                 if (this._changedId) {
@@ -116,7 +116,9 @@ const StatusRow = GObject.registerClass(
                 }
             });
 
-            this._sync();
+            // Deliberately not started here: a constructor cannot await, and a
+            // promise left running from one is both unobservable and a smell.
+            // fillPreferencesWindow calls refresh() once the row is built.
         }
 
         /**
@@ -125,7 +127,7 @@ const StatusRow = GObject.registerClass(
          * @returns {Promise<void>} Resolves once the subtitle is set. Returned
          *   so a test can await it; nothing in the UI needs to.
          */
-        async _sync() {
+        async refresh() {
             try {
                 const { dir, source } = await detectProfileDir(this._settings);
 
@@ -164,8 +166,13 @@ export default class QuickRemPreferences extends ExtensionPreferences {
                     'setting only if detection gets it wrong.',
             ),
         });
-        status.add(new StatusRow(settings));
+        const statusRow = new StatusRow(settings);
+        status.add(statusRow);
         page.add(status);
+
+        // Started here rather than from the row's constructor, so the promise
+        // has somewhere to belong.
+        statusRow.refresh();
 
         const overrides = new Adw.PreferencesGroup({ title: _('Overrides') });
 

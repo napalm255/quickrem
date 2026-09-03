@@ -30,11 +30,11 @@ const SECRET_KEY = /password|passphrase|secret/i;
 
 /** GKeyFile value escapes, in the order they must be undone. */
 const ESCAPES = new Map([
-    ['\\n', '\n'],
-    ['\\t', '\t'],
-    ['\\r', '\r'],
-    ['\\s', ' '],
-    ['\\\\', '\\'],
+    [String.raw`\n`, '\n'],
+    [String.raw`\t`, '\t'],
+    [String.raw`\r`, '\r'],
+    [String.raw`\s`, ' '],
+    [String.raw`\\`, '\\'],
 ]);
 
 /**

@@ -343,6 +343,60 @@ export const ProfileStore = GObject.registerClass(
         }
 
         /**
+         * Walk an open enumerator and collect the profile paths worth reading.
+         *
+         * @param {Gio.FileEnumerator} enumerator An open enumerator.
+         * @param {string} dir The directory it is enumerating.
+         * @param {Gio.Cancellable} cancellable Cancelled when superseded.
+         * @returns {Promise<Array<string>>} Absolute paths to profiles.
+         */
+        async _collectPaths(enumerator, dir, cancellable) {
+            const paths = [];
+
+            try {
+                for (;;) {
+                    const infos = await enumerator.next_files_async(
+                        BATCH_SIZE,
+                        GLib.PRIORITY_DEFAULT,
+                        cancellable,
+                    );
+                    if (infos.length === 0) break;
+
+                    for (const info of infos) {
+                        const path = this._profilePath(info, dir);
+                        if (path) paths.push(path);
+                    }
+                }
+            } finally {
+                // Every scan opens one of these and a watch on a busy directory
+                // can scan often, so the handle is closed here rather than left
+                // for the garbage collector.
+                enumerator.close(null);
+            }
+
+            return paths;
+        }
+
+        /**
+         * @param {Gio.FileInfo} info One directory entry.
+         * @param {string} dir The directory it came from.
+         * @returns {string|null} Its path, or null when it is not a profile
+         *   worth reading.
+         */
+        _profilePath(info, dir) {
+            const name = info.get_name();
+            if (!name.endsWith(PROFILE_SUFFIX)) return null;
+            if (info.get_file_type() === Gio.FileType.DIRECTORY) return null;
+
+            if (info.get_size() > MAX_PROFILE_BYTES) {
+                console.warn(`[quickrem] skipping ${name}: ${info.get_size()} bytes`);
+                return null;
+            }
+
+            return joinPath(dir, name);
+        }
+
+        /**
          * @param {string} dir Directory to read.
          * @param {Gio.Cancellable} cancellable Cancelled when superseded.
          * @returns {Promise<Array<object>>} Parsed profiles, unsorted.
@@ -363,38 +417,7 @@ export const ProfileStore = GObject.registerClass(
                 throw error;
             }
 
-            const paths = [];
-            try {
-                for (;;) {
-                    const infos = await enumerator.next_files_async(
-                        BATCH_SIZE,
-                        GLib.PRIORITY_DEFAULT,
-                        cancellable,
-                    );
-                    if (infos.length === 0) break;
-
-                    for (const info of infos) {
-                        const name = info.get_name();
-                        if (!name.endsWith(PROFILE_SUFFIX)) continue;
-                        if (info.get_file_type() === Gio.FileType.DIRECTORY) continue;
-
-                        if (info.get_size() > MAX_PROFILE_BYTES) {
-                            console.warn(
-                                `[quickrem] skipping ${name}: ${info.get_size()} bytes`,
-                            );
-                            continue;
-                        }
-
-                        paths.push(joinPath(dir, name));
-                    }
-                }
-            } finally {
-                // Every scan opens one of these and a watch on a busy directory
-                // can scan often, so the handle is closed here rather than left
-                // for the garbage collector.
-                enumerator.close(null);
-            }
-
+            const paths = await this._collectPaths(enumerator, dir, cancellable);
             const profiles = [];
             for (const path of paths) {
                 try {
