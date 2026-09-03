@@ -1,0 +1,399 @@
+<!doctype html>
+<html lang="en">
+    <head>
+        <meta charset="utf-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1" />
+        <title>QuickRem — Remmina connections in GNOME Quick Settings</title>
+        <meta
+            name="description"
+            content="Documentation for QuickRem, a GNOME Shell extension that puts saved Remmina connections in the Quick Settings panel: profiles, launching, architecture, testing and releasing."
+        />
+        <link rel="stylesheet" href="style.css" />
+    </head>
+    <body>
+        <a class="skip" href="#main">Skip to content</a>
+
+        <header>
+            <h1>QuickRem</h1>
+            <p class="tagline">Remmina connections in the Quick Settings panel.</p>
+            <p class="repo-link">
+                <a href="https://github.com/napalm255/quickrem">Source on GitHub</a>
+            </p>
+            <nav aria-label="Contents">
+                <ul class="toc">
+                    <li><a href="#profiles">Profiles</a></li>
+                    <li><a href="#install">Install</a></li>
+                    <li><a href="#preferences">Preferences</a></li>
+                    <li><a href="#launching">Launching</a></li>
+                    <li><a href="#secrets">Secrets</a></li>
+                    <li><a href="#architecture">Architecture</a></li>
+                    <li><a href="#testing">Testing</a></li>
+                    <li><a href="#packaging">Packaging</a></li>
+                    <li><a href="#releasing">Releasing</a></li>
+                    <li><a href="#development">Development</a></li>
+                </ul>
+            </nav>
+        </header>
+
+        <main id="main">
+            <p>
+                Open the system menu, click the Remmina tile, pick a saved connection.
+                The list is read from Remmina’s own profile directory and follows it as
+                it changes, so a connection saved in Remmina appears here without a
+                reload and without the extension being restarted.
+            </p>
+
+            <h2 id="profiles">Profiles</h2>
+            <p>
+                A Remmina profile is a <code>.remmina</code> file: GKeyFile with a
+                single <code>[remmina]</code> section of flat
+                <code>key=value</code> lines. QuickRem reads five of those keys —
+                <code>name</code>, <code>group</code>, <code>protocol</code>,
+                <code>server</code> and <code>username</code> — and ignores the rest.
+                Profiles are listed by <code>name</code>, collated the way the reader’s
+                locale collates, and a file with no usable <code>name</code> falls back
+                to its filename stem.
+            </p>
+            <p>Each entry carries an icon chosen from its <code>protocol</code>:</p>
+            <div class="scroll">
+                <table>
+                    <thead>
+                        <tr>
+                            <th scope="col">Protocol</th>
+                            <th scope="col">Icon</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr>
+                            <td><code>SSH</code></td>
+                            <td><code>utilities-terminal-symbolic</code></td>
+                        </tr>
+                        <tr>
+                            <td><code>SFTP</code></td>
+                            <td><code>folder-remote-symbolic</code></td>
+                        </tr>
+                        <tr>
+                            <td>
+                                <code>RDP</code>, <code>VNC</code>, <code>GVNC</code>,
+                                <code>SPICE</code>
+                            </td>
+                            <td>
+                                <code>preferences-desktop-remote-desktop-symbolic</code>
+                            </td>
+                        </tr>
+                        <tr>
+                            <td><code>WWW</code></td>
+                            <td><code>web-browser-symbolic</code></td>
+                        </tr>
+                        <tr>
+                            <td><code>EXEC</code></td>
+                            <td><code>system-run-symbolic</code></td>
+                        </tr>
+                        <tr>
+                            <td>anything else</td>
+                            <td><code>network-server-symbolic</code></td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+            <p>
+                The directory is found rather than configured. Highest precedence first:
+                the <code>profile-dir</code> setting, then
+                <code>datadir_path</code> from <code>remmina.pref</code>, then a native
+                install’s <code>$XDG_DATA_HOME/remmina</code>, then the Flatpak’s
+                <code>~/.var/app/org.remmina.Remmina/data/remmina</code>. A native
+                install wins over the Flatpak because its profiles are the ones
+                <code>remmina -c</code> on the command line would open.
+            </p>
+            <p class="note">
+                A fresh Remmina install has no profile directory at all. QuickRem
+                watches the nearest ancestor that does exist and moves the watch onto
+                the real directory once it appears, so the list fills in on its own
+                rather than needing the extension turned off and on again.
+            </p>
+
+            <h2 id="install">Install</h2>
+            <p>
+                Needs GNOME 49 or newer, and Remmina. From the latest release, with no
+                clone and no toolchain — <code>gnome-extensions</code> ships with GNOME
+                Shell itself:
+            </p>
+            <!--email_off-->
+            <pre><code>curl -LO 'https://github.com/napalm255/quickrem/releases/latest/download/quickrem@napalm255.github.io.shell-extension.zip'
+gnome-extensions install --force 'quickrem@napalm255.github.io.shell-extension.zip'</code></pre>
+            <!--/email_off-->
+            <p>
+                That unpacks the extension and compiles its settings schema, so there is
+                no separate <code>glib-compile-schemas</code> step. Log out and back in
+                — Wayland cannot reload the Shell in place — then turn it on:
+            </p>
+            <!--email_off-->
+            <pre><code>gnome-extensions enable quickrem@napalm255.github.io</code></pre>
+            <!--/email_off-->
+            <p>From a clone:</p>
+            <pre><code>just setup
+just install
+just enable</code></pre>
+            <p class="note">
+                A brand-new extension is invisible to a running Shell on Wayland, so the
+                first <code>just enable</code> after a fresh <code>just install</code>
+                reports that the extension does not exist. Log out and back in, then run
+                it.
+            </p>
+
+            <h2 id="preferences">Preferences</h2>
+            <p>
+                <code>just prefs</code>, or the Settings entry at the bottom of the
+                menu. The first row shows which directory QuickRem resolved and how it
+                got there, so a wrong guess is visible rather than silent — including
+                when the directory does not exist yet.
+            </p>
+            <div class="scroll">
+                <table>
+                    <thead>
+                        <tr>
+                            <th scope="col">Setting</th>
+                            <th scope="col">Leaving it empty means</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr>
+                            <td>Profile directory</td>
+                            <td>
+                                Detect it: <code>datadir_path</code>, then a native
+                                install, then the Flatpak
+                            </td>
+                        </tr>
+                        <tr>
+                            <td>Launch command</td>
+                            <td>
+                                Use the application registered for
+                                <code>application/x-remmina</code>
+                            </td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+            <p>
+                Launch command is the escape hatch for an unusual install. It is split
+                with <code>GLib.shell_parse_argv</code> and the profile path is appended
+                as a separate argument, never interpolated into the string.
+            </p>
+
+            <h2 id="launching">Launching</h2>
+            <p>
+                Remmina exposes no D-Bus interface and is not D-Bus activatable, so
+                something has to be executed. The obvious choice — shelling out to
+                <code>flatpak run org.remmina.Remmina -c &lt;path&gt;</code> — is the
+                wrong one: it hard-codes the packaging, and a path handed straight to a
+                sandboxed process is not necessarily a path that process can see.
+            </p>
+            <p>
+                Instead QuickRem opens a profile through whatever is registered for
+                <code>application/x-remmina</code>. On a Flatpak install that resolves
+                to Remmina’s own connect entry:
+            </p>
+            <pre><code>Exec=flatpak run --command=remmina-file-wrapper --file-forwarding \
+     org.remmina.Remmina -c @@u %U @@</code></pre>
+            <p>
+                That entry <em>is</em> the <code>-c</code> connect action, and
+                <code>--file-forwarding</code> makes the portal translate the path into
+                the sandbox. The same call works unchanged against a distribution
+                package, reuses an already-running Remmina through GApplication, and
+                needs no branching on how Remmina was installed. Opening Remmina’s own
+                window goes through <code>Shell.AppSystem</code>, which brings its own
+                launch context so the window lands on the workspace the click came from.
+            </p>
+
+            <h2 id="secrets">Secrets</h2>
+            <p>
+                Remmina encrypts stored passwords with a key kept in
+                <code>remmina.pref</code>. QuickRem cannot decrypt them and does not
+                try. <code>modules/profiles.js</code> drops every key matching
+                <code>password</code>, <code>passphrase</code> or <code>secret</code>
+                <em>while parsing</em>, rather than filtering them out later — so a
+                future code path that forgets to filter has nothing to leak into a menu
+                label, a subtitle or the journal.
+            </p>
+            <p>
+                <code>remmina.pref</code> itself is read for exactly one key,
+                <code>datadir_path</code>. The <code>secret=</code> sitting beside it is
+                never returned and never kept.
+            </p>
+            <p>
+                Both claims are tested. A unit test asserts the parsed object contains
+                none of the ciphertext and has only the six expected keys, and the live
+                check greps a whole Shell session log for a fixture password and
+                requires zero occurrences.
+            </p>
+
+            <h2 id="architecture">Architecture</h2>
+            <div class="scroll">
+                <table>
+                    <thead>
+                        <tr>
+                            <th scope="col">File</th>
+                            <th scope="col">Imports</th>
+                            <th scope="col">Job</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr>
+                            <td><code>extension.js</code></td>
+                            <td>Shell</td>
+                            <td>Pair construction with teardown, nothing else</td>
+                        </tr>
+                        <tr>
+                            <td><code>modules/profiles.js</code></td>
+                            <td>nothing</td>
+                            <td>Parse a profile, sort, map protocol to icon</td>
+                        </tr>
+                        <tr>
+                            <td><code>modules/paths.js</code></td>
+                            <td>nothing</td>
+                            <td>Decide which directory to read</td>
+                        </tr>
+                        <tr>
+                            <td><code>modules/store.js</code></td>
+                            <td>Gio, GLib, GObject</td>
+                            <td>Scan and watch it; publish <code>profiles</code></td>
+                        </tr>
+                        <tr>
+                            <td><code>modules/panel.js</code></td>
+                            <td>Shell, St</td>
+                            <td>The tile, its menu, and launching</td>
+                        </tr>
+                        <tr>
+                            <td><code>prefs.js</code></td>
+                            <td>Adw, Gtk</td>
+                            <td>Preferences, in its own process</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+            <p>
+                The store owns the data and the panel owns the widgets. The panel
+                rebuilds from <code>notify::profiles</code> and holds no profile state
+                of its own, so there is one place where the list can be wrong.
+            </p>
+            <p>
+                Scanning is asynchronous throughout. A profile directory lives on
+                whatever the home directory is mounted from, and a synchronous read
+                blocks the compositor thread — a stutter in the whole desktop, not just
+                in this menu. File events are debounced, because Remmina rewrites a
+                profile in several steps when it saves, and a generation counter throws
+                away a scan that a newer one has overtaken.
+            </p>
+
+            <h3>Why the list scrolls</h3>
+            <p>
+                <code>QuickToggleMenu</code> has no scrolling of its own. Measured on a
+                1080p screen, thirty profiles want 1296px of a 1048px work area and the
+                surplus is simply clipped. GNOME’s own Wi-Fi menu answers this by
+                showing eight networks and sending you to Settings for the rest, which
+                suits a list you skim but not one you pick from: the point here is that
+                any saved connection is one click away.
+            </p>
+            <p>
+                So <code>modules/panel.js</code> subclasses
+                <code>PopupMenuSection</code> and swaps its <code>actor</code> for an
+                <code>St.ScrollView</code> around the same box.
+                <code>PopupMenuBase.addMenuItem()</code> adds
+                <code>section.actor</code> but does its bookkeeping against the section
+                object, so key navigation, open-state propagation and activation all
+                survive the swap. The cap is half the work area, recomputed on every
+                rebuild and every menu open — which picks up a monitor change or a
+                text-scaling change without watching for either. Below the cap no
+                scrollbar appears at all.
+            </p>
+
+            <h2 id="testing">Testing</h2>
+            <p>
+                <code>modules/profiles.js</code> and
+                <code>modules/paths.js</code> import nothing — not <code>gi://</code>,
+                not <code>resource:///</code> — so Vitest runs them on plain Node
+                exactly as they ship. <code>modules/store.js</code> runs against an
+                in-memory Gio in <code>tests/stubs/</code>, which is what makes the
+                debounce, the generation counter and the watch re-attach reachable from
+                a unit test at all. Timeouts are queued rather than scheduled, so “this
+                burst of five events caused one rescan” is a direct assertion rather
+                than a sleep.
+            </p>
+            <p>
+                <code>prefs.js</code> is tested too, mostly to pin one trap:
+                <code>_()</code> may not be called while a module is being evaluated. A
+                translated string in a module-level table throws
+                <code>gettext can only be called from extensions</code> and the
+                preferences window then never opens — silently, because nothing else in
+                the extension imports <code>prefs.js</code>. The stub’s
+                <code>gettext</code> throws unless a test says otherwise, so importing
+                the module is itself the check.
+            </p>
+            <p>
+                <code>modules/panel.js</code> and <code>extension.js</code> are widget
+                construction and lifecycle wiring. Asserting those against stubs of the
+                toolkit tests the stubs, so they are covered by
+                <code>scripts/headless-check.sh</code> instead, which boots a throwaway
+                headless <code>gnome-shell</code> in isolated XDG directories, enables,
+                disables and re-enables the extension, plants and removes a profile
+                while it runs, and fails on a JavaScript error, a leaked signal handler
+                or a deallocated-object warning. The enable/disable/enable cycle is the
+                point: a connect that outlives its disconnect only shows up on the
+                second enable.
+            </p>
+
+            <h2 id="packaging">Packaging</h2>
+            <p>
+                <code>just build</code> makes the zip with plain <code>zip</code>,
+                because <code>gnome-extensions</code> ships inside the gnome-shell
+                package and CI has no GNOME — making the build depend on it would pull a
+                whole desktop onto every runner. The cost is that nothing checks the
+                archive layout, and extensions.gnome.org is strict about it, so
+                <code>scripts/pack-check.sh</code> keeps the official tool as the
+                authority and diffs the two archives, then asserts
+                <code>metadata.json</code> sits at the archive root.
+            </p>
+
+            <h2 id="releasing">Releasing</h2>
+            <p>
+                Set the version in <code>metadata.json</code> and
+                <code>package.json</code>, commit, then tag and push:
+            </p>
+            <pre><code>git tag -a v0.1.0 -m 'release v0.1.0'
+git push origin v0.1.0</code></pre>
+            <p>
+                The release workflow checks the tag against both files before it builds
+                anything. A tag that disagrees with the tree would otherwise ship a
+                release titled v0.2.0 containing a zip that tells GNOME it is 0.1.0, and
+                nothing downstream would notice. The full suite gates the publish.
+            </p>
+
+            <h2 id="development">Development</h2>
+            <pre><code>just            # list every recipe
+just test       # unit suite, runs on Node
+just lint       # eslint, prettier, gschema and shellcheck
+just security   # gitleaks, trivy, osv-scanner, actionlint, zizmor
+just ci         # everything CI runs
+just fixtures 5 # throwaway profiles, to exercise the menu and the watcher
+just test-live  # headless Shell smoke test, then the packer check
+just logs       # follow the extension's output
+just clean      # remove node_modules, coverage and build output</code></pre>
+            <p>
+                <code>mise.toml</code> pins every tool, so <code>just ci</code> behaves
+                the same locally and on a runner. <code>gjs</code>,
+                <code>glib-compile-schemas</code>, <code>gnome-shell</code> and
+                <code>gnome-extensions</code> come from the system rather than mise,
+                because they have to match the Shell you are targeting.
+            </p>
+        </main>
+
+        <footer>
+            <p>
+                QuickRem is free software under the GPL-3.0-or-later.
+                <a href="https://github.com/napalm255/quickrem"
+                    >Source and issues on GitHub</a
+                >.
+            </p>
+        </footer>
+    </body>
+</html>
