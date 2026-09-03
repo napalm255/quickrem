@@ -61,6 +61,33 @@ class ProfileSection extends PopupMenu.PopupMenuSection {
     }
 
     /**
+     * Keep a focused row in view.
+     *
+     * St.ScrollView does not follow keyboard focus on its own — measured on a
+     * list of forty, focusing the twenty-sixth row left the scroll position at
+     * zero — so arrowing down past the visible rows moved the selection
+     * off-screen with nothing to show for it.
+     *
+     * @param {object} item The menu item that just took focus.
+     */
+    scrollToItem(item) {
+        const adjustment = this.actor.vadjustment;
+        const [value, , , , , pageSize] = adjustment.get_values();
+        const box = item.get_allocation_box();
+
+        if (box.y1 < value) adjustment.set_value(box.y1);
+        else if (box.y2 > value + pageSize) adjustment.set_value(box.y2 - pageSize);
+    }
+
+    addMenuItem(menuItem, position) {
+        super.addMenuItem(menuItem, position);
+
+        // The handler dies with the item, and every item is destroyed on the
+        // next rebuild, so there is nothing here to disconnect by hand.
+        menuItem.connect('key-focus-in', () => this.scrollToItem(menuItem));
+    }
+
+    /**
      * Re-cap the list against the current screen and show the scrollbar only
      * when there is something to scroll.
      *
@@ -89,9 +116,6 @@ class ProfileSection extends PopupMenu.PopupMenuSection {
         this.actor.vscrollbar_policy = scrolls
             ? St.PolicyType.AUTOMATIC
             : St.PolicyType.NEVER;
-
-        if (scrolls) this.actor.add_style_pseudo_class('scrolled');
-        else this.actor.remove_style_pseudo_class('scrolled');
     }
 }
 
