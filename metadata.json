@@ -1,0 +1,10 @@
+{
+    "uuid": "quickrem@napalm255.github.io",
+    "name": "QuickRem",
+    "description": "Remmina connections in the Quick Settings panel. Saved profiles are one click away, and the list follows the profile directory as it changes.",
+    "shell-version": ["49", "50"],
+    "url": "https://github.com/napalm255/quickrem",
+    "settings-schema": "org.gnome.shell.extensions.quickrem",
+    "gettext-domain": "quickrem",
+    "version-name": "0.1.0"
+}

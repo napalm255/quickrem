@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<schemalist gettext-domain="quickrem">
+    <schema id="org.gnome.shell.extensions.quickrem"
+            path="/org/gnome/shell/extensions/quickrem/">
+        <key name="profile-dir" type="s">
+            <default>''</default>
+            <summary>Profile directory</summary>
+            <description>
+                Directory to read .remmina profiles from. Leave empty to detect it
+                from the installed Remmina, which honours datadir_path in
+                remmina.pref and falls back to the Flatpak or native data
+                directory.
+            </description>
+        </key>
+        <key name="launch-command" type="s">
+            <default>''</default>
+            <summary>Launch command</summary>
+            <description>
+                Command used to start Remmina. The profile path is appended as a
+                final argument when opening a saved connection. Leave empty to use
+                the application registered to handle application/x-remmina.
+            </description>
+        </key>
+    </schema>
+</schemalist>
