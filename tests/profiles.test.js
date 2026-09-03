@@ -1,6 +1,11 @@
 import { describe, expect, it } from 'vitest';
 
-import { parseProfile, protocolIcon, sortProfiles } from '../modules/profiles.js';
+import {
+    parseProfile,
+    protocolIcon,
+    sameProfiles,
+    sortProfiles,
+} from '../modules/profiles.js';
 
 const PATH = '/data/remmina/lab_ssh_box.remmina';
 
@@ -140,5 +145,34 @@ describe('protocolIcon', () => {
     it('falls back for anything unknown or missing', () => {
         for (const value of ['', 'NX', undefined, null, 42])
             expect(protocolIcon(value)).toBe('network-server-symbolic');
+    });
+});
+
+describe('sameProfiles', () => {
+    const one = {
+        path: '/p/a.remmina',
+        name: 'A',
+        group: 'g',
+        protocol: 'SSH',
+        server: 's',
+        username: 'u',
+    };
+
+    it('matches identical lists', () => {
+        expect(sameProfiles([one], [{ ...one }])).toBe(true);
+        expect(sameProfiles([], [])).toBe(true);
+    });
+
+    it('notices a different length, order or field', () => {
+        expect(sameProfiles([one], [])).toBe(false);
+        expect(
+            sameProfiles(
+                [one, { ...one, path: '/p/b.remmina' }],
+                [{ ...one, path: '/p/b.remmina' }, one],
+            ),
+        ).toBe(false);
+
+        for (const field of ['path', 'name', 'group', 'protocol', 'server', 'username'])
+            expect(sameProfiles([one], [{ ...one, [field]: 'changed' }])).toBe(false);
     });
 });

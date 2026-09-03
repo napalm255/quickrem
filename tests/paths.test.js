@@ -8,6 +8,7 @@ import {
     nativeDataDir,
     parseDatadirPath,
     prefFileCandidates,
+    readDatadirPath,
     resolveProfileDir,
 } from '../modules/paths.js';
 
@@ -135,5 +136,57 @@ describe('resolveProfileDir', () => {
             dir: `${HOME}/.var/app/${APP_ID}/data/remmina`,
             source: 'flatpak',
         });
+    });
+});
+
+describe('readDatadirPath', () => {
+    /**
+     * @param {object} files Path to contents, or to an Error to throw.
+     * @returns {Function} A reader over those files.
+     */
+    const reader = entries => {
+        // A Map, not an object literal: a path used as an object key is the
+        // shape eslint-plugin-security flags.
+        const files = new Map(Object.entries(entries));
+
+        return async path => {
+            const value = files.get(path);
+            if (value === undefined) throw new Error(`${path} not found`);
+            if (value instanceof Error) throw value;
+
+            return value;
+        };
+    };
+
+    it('skips a file it cannot read and tries the next', async () => {
+        const result = await readDatadirPath(
+            ['/a/remmina.pref', '/b/remmina.pref'],
+            reader({
+                '/a/remmina.pref': new Error('permission denied'),
+                '/b/remmina.pref': '[remmina_pref]\ndatadir_path=/srv/profiles\n',
+            }),
+        );
+
+        expect(result).toBe('/srv/profiles');
+    });
+
+    it('lets the first readable file decide, even with no datadir_path', async () => {
+        // A native install's preferences are authoritative for a native
+        // install; a datadir configured in the Flatpak's copy says nothing
+        // about where the native binary looks.
+        const result = await readDatadirPath(
+            ['/a/remmina.pref', '/b/remmina.pref'],
+            reader({
+                '/a/remmina.pref': '[remmina_pref]\nsecret=KEY\n',
+                '/b/remmina.pref': '[remmina_pref]\ndatadir_path=/srv/profiles\n',
+            }),
+        );
+
+        expect(result).toBeNull();
+    });
+
+    it('returns null when nothing can be read', async () => {
+        expect(await readDatadirPath(['/a', '/b'], reader({}))).toBeNull();
+        expect(await readDatadirPath([], reader({}))).toBeNull();
     });
 });

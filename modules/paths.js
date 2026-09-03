@@ -122,6 +122,37 @@ export function parseDatadirPath(text) {
 }
 
 /**
+ * Read `datadir_path` from the first remmina.pref that can be read.
+ *
+ * Both callers need this and they read files differently — the Shell must not
+ * block the compositor, the preferences process can read synchronously — so the
+ * reader is passed in and only the rule lives here. That rule is: a file we
+ * cannot read is skipped, and the first one we *can* read decides, even when it
+ * has no `datadir_path`. A native install's preferences are authoritative for a
+ * native install; a datadir configured in the Flatpak's copy says nothing about
+ * where the native binary looks.
+ *
+ * @param {Array<string>} candidates Paths to try, in order.
+ * @param {Function} readText Async, returns the file's text or throws.
+ * @returns {Promise<string|null>} The configured directory, or null.
+ */
+export async function readDatadirPath(candidates, readText) {
+    for (const path of candidates) {
+        let text;
+
+        try {
+            text = await readText(path);
+        } catch {
+            continue;
+        }
+
+        return parseDatadirPath(text);
+    }
+
+    return null;
+}
+
+/**
  * Decide which directory to read profiles from.
  *
  * @param {object} probe What the Shell layer found out.
